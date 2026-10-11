@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""小红书高画质图片下载 —— 原格式直存版。
+"""小红书图片下载器（图片专用，原格式直存）。
 
 原理：
   短链 → 抓笔记页 → __INITIAL_STATE__ 提 fileId
@@ -15,7 +15,7 @@
   - 体积校验：按 Content-Length 对账，防截断下载
   - MPO（实况照片）按 MPF 标记识别，存 .mpo
 
-用法:
+用法：
   python3 xhs_img.py "https://xhslink.cn/o/xxx" --out-dir DIR
 """
 import argparse
@@ -309,7 +309,6 @@ def main() -> None:
         out_name = os.path.basename(result.get("path") or filename_base)
         print(f"  [{n}/{len(file_ids)}] {result['bytes']//1024}KB {fmt} [{method}] "
               f"{'OK' if result['downloaded'] else 'FAIL'} -> {out_name}", file=sys.stderr)
-        print(json.dumps(result, ensure_ascii=False))
         results.append(result)
 
     ok = sum(1 for r in results if r.get("downloaded"))
@@ -336,7 +335,8 @@ def main() -> None:
     if downloaded and publish_time_str:
         write_timestamps_smart(downloaded, publish_time_str, kind="image")
 
-    print(json.dumps({"manifest": manifest_path, "status": manifest["status"]}, ensure_ascii=False))
+    tag = "[+]" if manifest["status"] == "success" else "[!]"
+    print(f"{tag} 完成 {ok}/{len(file_ids)}，清单: {manifest_path}")
 
 
 if __name__ == "__main__":
