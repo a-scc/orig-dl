@@ -4,13 +4,12 @@
 
 ## 功能
 
-- 🖼️ **图片下载** — 原图 .jpg，自动选最大尺寸
-- 🎬 **视频下载** — 高清 .mp4（优先 HD，兜底 stream）
-- 🔗 **支持所有链接格式** — 标准微博链接、fx 分享链接、移动端链接
+- 🖼️ **图片下载** — 原图 .jpg，自动选最大尺寸（large=original，微博天花板）
+- 🎬 **视频下载** — 1440p .mp4（playback_list 最高档，转码；单链路，拿不到就报错）
+- 🔗 **链接格式** — 仅支持 weibo.com 状态链接
 - 📋 **批量下载** — 支持从 txt 文件批量导入
 - 🍃 **零外部依赖** — 仅 `requests`，不依赖 gallery-dl/yt-dlp 等工具
-- 🔒 **自包含** — 访客 cookie 自动管理，365天有效
-- ⏰ **自动时间戳** — 下载后自动用 exiftool 写入发布时间（JPEG 写 EXIF，touch -t 保底 mtime）
+- ⏰ **自动时间戳** — 下载后自动用 exiftool 写入发布时间（带 +08:00 时区）
 
 ## 使用方法
 
@@ -18,11 +17,11 @@
 # 安装依赖
 pip install requests
 
-# 下载单条微博
+# 下载单条微博（图片）
 python3 wb_img.py "https://weibo.com/USER/STATUS_ID"
 
-# fx 分享链接（自动解析）
-python3 wb_img.py "https://mapp.api.weibo.cn/fx/XXXX.html"
+# 下载单条微博（视频）
+python3 wb_video.py "https://weibo.com/USER/STATUS_ID"
 
 # 指定保存目录
 python3 wb_img.py "https://weibo.com/USER/123456" /tmp/output
@@ -31,10 +30,7 @@ python3 wb_img.py "https://weibo.com/USER/123456" /tmp/output
 python3 wb_img.py --batch links.txt --out-dir /tmp/weibo
 ```
 
-支持以下输入格式：
-- 标准微博：`https://weibo.com/USER/STATUS_ID`
-- 分享链接：`https://mapp.api.weibo.cn/fx/XXXX.html`（自动 302 重定向解析）
-- 移动端：`https://m.weibo.cn/status/STATUS_ID`
+仅支持 weibo.com 状态链接。
 
 ## 输出
 
