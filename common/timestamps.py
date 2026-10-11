@@ -11,15 +11,19 @@ import os
 import shutil
 import subprocess
 
-EXIFTOOL = shutil.which("exiftool") or os.path.expanduser("~/workspace/tools/Image-ExifTool-13.59/exiftool")
+_EXIFTOOL = shutil.which("exiftool") or os.path.expanduser("~/workspace/tools/Image-ExifTool-13.59/exiftool")
+EXIFTOOL = _EXIFTOOL if _EXIFTOOL and os.path.exists(_EXIFTOOL) else None
 
 
 def has_original_time(filepath):
     """检查文件是否已有原拍摄时间。
 
     读 DateTimeOriginal（图片）/ CreateDate（视频），任一有非空值即 True。
+    无 exiftool 时返回 False（按"没有"处理，走 touch -t 保底）。
     读失败返回 False（按"没有"处理，走写入逻辑）。
     """
+    if not EXIFTOOL:
+        return False
     try:
         r = subprocess.run(
             [EXIFTOOL, "-s", "-DateTimeOriginal", "-CreateDate", filepath],
@@ -42,7 +46,13 @@ def _touch_mtime(filepaths, ts):
 
 
 def _write_image_variant(filepaths, ts):
-    """图片版：JPEG/HEIC/HEIF/WebP 写 EXIF + 时区偏移，PNG 写 XMP:CreateDate（含时区）。"""
+    """图片版：JPEG/HEIC/HEIF/WebP 写 EXIF + 时区偏移，PNG 写 XMP:CreateDate（含时区）。
+
+    无 exiftool 时只走 touch -t 保底。
+    """
+    if not EXIFTOOL:
+        _touch_mtime(filepaths, ts)
+        return
     jpg_heic = [f for f in filepaths if f.lower().endswith((".jpg", ".jpeg", ".heic", ".heif", ".webp"))]
     pngs = [f for f in filepaths if f.lower().endswith(".png")]
     # XMP 需要 ISO 8601 带时区格式：2026-10-02T18:26:12+08:00
@@ -60,7 +70,13 @@ def _write_image_variant(filepaths, ts):
 
 
 def _write_video_variant(filepaths, ts):
-    """视频完整版：DateTimeOriginal + CreateDate + 时区偏移（小红书/抖音日常）。"""
+    """视频完整版：DateTimeOriginal + CreateDate + 时区偏移（小红书/抖音日常）。
+
+    无 exiftool 时只走 touch -t 保底。
+    """
+    if not EXIFTOOL:
+        _touch_mtime(filepaths, ts)
+        return
     subprocess.run([EXIFTOOL, "-overwrite_original",
                     f"-DateTimeOriginal={ts}", f"-CreateDate={ts}",
                     "-OffsetTimeOriginal=+08:00", "-OffsetTimeDigitized=+08:00"] + filepaths,
@@ -69,7 +85,13 @@ def _write_video_variant(filepaths, ts):
 
 
 def _write_video_simple_variant(filepaths, ts):
-    """视频简化版：CreateDate + OffsetTimeDigitized（微博视频）。"""
+    """视频简化版：CreateDate + OffsetTimeDigitized（微博视频）。
+
+    无 exiftool 时只走 touch -t 保底。
+    """
+    if not EXIFTOOL:
+        _touch_mtime(filepaths, ts)
+        return
     subprocess.run([EXIFTOOL, "-overwrite_original",
                     f"-CreateDate={ts}",
                     "-OffsetTimeDigitized=+08:00"] + filepaths,
