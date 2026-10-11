@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """抖音图文下载器（图片专用）。
 
-下载原理：
+原理：
   主链：detail API 取图片直链（被 WAF 拦时走不通）
   兜底：--urls 模式（浏览器提链 → 直接下载）
 
@@ -10,6 +10,10 @@
 
 反爬：统一 UA + Referer（common.headers），图片间隔见 common.config，
 429/403 指数退避重试（common.retry）。
+
+用法：
+  python dy_img.py --urls urls.txt --out-dir ./out
+  python dy_img.py <分享链接> --out-dir ./out
 """
 import sys
 import os
