@@ -15,7 +15,7 @@
 反爬：统一 UA + Referer（common.headers），
 429/403 指数退避重试（common.retry）。
 
-用法: python3 wb_video.py <微博链接> [保存目录]
+用法： python3 wb_video.py <微博链接> [保存目录]
       python3 wb_video.py --batch links.txt [保存目录]
 """
 
