@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""小红书视频原画下载 —— 逆向方法。
+"""小红书视频下载器（视频专用，原画）。
 
 原理：
   短链 → 抓笔记页 → __INITIAL_STATE__ 提 originVideoKey
@@ -10,7 +10,7 @@
   - 已验证：4K 99MB iPhone 原生 MOV，页面 MD5 与下载 MD5 一致，真原文件
   - 带 Referer（common.headers），无害且保险；实测无 Referer 也能通
 
-用法:
+用法：
   python3 xhs_video.py "https://xhslink.cn/o/xxx" --out-dir DIR
 """
 import argparse
@@ -267,8 +267,9 @@ def main() -> None:
     if publish_time_str:
         write_timestamps_smart([out_path], publish_time_str, kind="video")
 
-    print(json.dumps({"manifest": manifest_path, "status": manifest["status"],
-                      "file": out_path, "md5_match": md5_match}, ensure_ascii=False))
+    tag = "[+]" if manifest["status"] == "success" else "[!]"
+    md5_tag = "一致" if md5_match else "不一致"
+    print(f"{tag} {os.path.basename(out_path)} (MD5 {md5_tag})")
 
 
 if __name__ == "__main__":
