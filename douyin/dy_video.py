@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """抖音作品视频真原画下载器（视频专用）。
 
-下载原理（单层真原画）：
+原理：
   detail API 取元数据 + 视频 URI（v0d00/v0300）
   → aweme/v1/play/?video_id={uri}&ratio=default&line=0（免登录）
   → 302 跟随拿 CDN 直链 → 下载源文件
@@ -15,6 +15,10 @@
 
 反爬：统一 UA + Referer（common.headers），
 429/403 指数退避重试（common.retry）。
+
+用法：
+  python dy_video.py <视频分享链接> --out-dir ./out
+  python dy_video.py --batch links.txt --out-dir ./out
 """
 import sys
 import os
