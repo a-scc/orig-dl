@@ -28,6 +28,7 @@ try:
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     from common.headers import DOUYIN as COMMON_HEADERS
     from common.config import MAX_RETRIES
+    from common.retry import with_retry, douyin_get
     from common.timestamps import write_timestamps_smart
     HEADERS = dict(COMMON_HEADERS)
     _HAS_COMMON = True
@@ -42,6 +43,20 @@ except ImportError:
         "Referer": "https://www.douyin.com/",
     }
     MAX_RETRIES = 3
+    def with_retry(max_retries=3, backoff_base=2):
+        def decorator(func):
+            return func  # 单文件模式：不做指数退避
+        return decorator
+    def douyin_get(url, headers, **kwargs):
+        import requests
+        r = requests.get(url, headers=headers, **kwargs)
+        if r.status_code == 403 and "Referer" in headers:
+            print("[~] 403，去掉 Referer 重试...")
+            h2 = dict(headers)
+            h2.pop("Referer", None)
+            r = requests.get(url, headers=h2, **kwargs)
+        r.raise_for_status()
+        return r
     def write_timestamps_smart(files, timestr, kind="video"):
         pass  # 单文件模式：跳过时间戳写入
 
@@ -303,13 +318,10 @@ def download_file(url: str, filepath: str,
     下载完比对字节数，不一致则报错删残件。"""
     try:
         print(f"[+] 正在下载: {os.path.basename(filepath)}")
-        r = requests.get(url, headers=HEADERS, stream=True, timeout=30)
-        if r.status_code == 403:
-            print("[~] 403，去掉Referer重试...")
-            h2 = HEADERS.copy()
-            h2.pop("Referer", None)
-            r = requests.get(url, headers=h2, stream=True, timeout=30)
-        r.raise_for_status()
+        @with_retry()
+        def _fetch():
+            return douyin_get(url, HEADERS, stream=True, timeout=30)
+        r = _fetch()
 
         total = int(r.headers.get("content-length", 0))
         downloaded = 0

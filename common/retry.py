@@ -60,3 +60,21 @@ def with_retry(max_retries=3, backoff_base=2):
             raise last_exc
         return wrapper
     return decorator
+
+
+def douyin_get(url, headers, **kwargs):
+    """抖音专用 GET：403 时先去 Referer 重试一次，再走 check_response。
+
+    用法:
+        @with_retry()
+        def fetch():
+            return douyin_get(url, HEADERS, timeout=30)
+    """
+    import requests
+    r = requests.get(url, headers=headers, **kwargs)
+    if r.status_code == 403 and "Referer" in headers:
+        print("[~] 403，去掉 Referer 重试...")
+        h2 = dict(headers)
+        h2.pop("Referer", None)
+        r = requests.get(url, headers=h2, **kwargs)
+    return check_response(r)
