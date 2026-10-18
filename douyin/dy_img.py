@@ -193,12 +193,9 @@ def parse_slidesinfo_api(data: dict, content_id: str) -> dict | None:
             date_part = publish_time_str[0:4] + publish_time_str[5:7] + publish_time_str[8:10] if publish_time_str else "nodate"
             aweme_id = ad.get("aweme_id", content_id)
             filename = f"{name_part}_{desc_part}_{date_part}_{aweme_id[:8]}_{i + 1:02d}.{ext}"
-            exp_w = img.get("width") or 0
-            exp_h = img.get("height") or 0
             media_list.append({
                 "url": best_url,
                 "filename": filename,
-                "expected_size": (exp_w, exp_h) if exp_w and exp_h else None,
             })
 
         if not media_list:
@@ -257,50 +254,29 @@ def sniff_image_size(content: bytes):
     return None
 
 
-def download_file(url: str, filepath: str, is_image: bool = False,
-                  expected_size: tuple = None, max_retries: int = 3,
-                  single_try: bool = False) -> bool:
+def download_file(url: str, filepath: str, is_image: bool = False) -> bool:
     """下载单个文件（视频流式+进度条，图片直接下载）。
-    图片：下载后验尺寸，若小于 expected_size 则重下（抖音 CDN 档位不稳定）。
-    无 expected_size 时：连下多次取尺寸最大者。
-    single_try=True 时只下一次（直链模式：URL 已是浏览器提的最高档）。"""
+    网络抖动/403 由 with_retry + douyin_get 统一处理；下载后做
+    Content-Length 对账和魔数校验，失败抛异常走退避重试。"""
     try:
         print(f"[+] 正在下载: {os.path.basename(filepath)}")
         if is_image:
-            best_content = None
-            best_size = (0, 0)
-            tries = 1 if single_try else max_retries
-            for attempt in range(tries):
-                r = requests.get(url, headers=HEADERS, timeout=30)
-                r.raise_for_status()
-                content = r.content
-                # Content-Length 对账：截断直接报错
-                cl = r.headers.get("content-length")
-                if cl and len(content) != int(cl):
-                    print(f"[!] {os.path.basename(filepath)}: 内容截断 "
-                          f"({len(content)}/{cl} 字节)")
-                    return False
-                size = sniff_image_size(content) or (0, 0)
-                px = size[0] * size[1]
-
-                # 有期望尺寸：达到即收工
-                if expected_size and px >= expected_size[0] * expected_size[1]:
-                    best_content = content
-                    best_size = size
-                    break
-                # 无期望尺寸：取最大者
-                if px > best_size[0] * best_size[1]:
-                    best_content = content
-                    best_size = size
-                if attempt < tries - 1:
-                    print(f"[~] 第{attempt + 1}次尺寸 {size[0]}x{size[1]}，重下一次…")
-                    time.sleep(1)
-
+            @with_retry()
+            def _fetch():
+                return douyin_get(url, HEADERS, timeout=30)
+            r = _fetch()
+            content = r.content
+            cl = r.headers.get("content-length")
+            if cl and len(content) != int(cl):
+                raise ValueError(f"内容截断 ({len(content)}/{cl} 字节)")
+            size = sniff_image_size(content)
+            if not size:
+                raise ValueError("下载内容不是有效图片")
             with open(filepath, "wb") as f:
-                f.write(best_content)
-            size_kb = len(best_content) / 1024
+                f.write(content)
+            size_kb = len(content) / 1024
             print(f"[OK] 下载完成！保存至: {os.path.abspath(filepath)} "
-                  f"({size_kb:.0f} KB, {best_size[0]}x{best_size[1]})")
+                  f"({size_kb:.0f} KB, {size[0]}x{size[1]})")
         else:
             @with_retry()
             def _fetch():
@@ -387,8 +363,7 @@ def run(raw_input: str, output_dir: str = None) -> bool:
         if idx > 0:
             time.sleep(img_interval)
         filepath = os.path.join(output_dir, media["filename"])
-        if download_file(media["url"], filepath, is_image=True,
-                         expected_size=media.get("expected_size")):
+        if download_file(media["url"], filepath, is_image=True):
             success_count += 1
             downloaded_files.append(filepath)
 
@@ -434,7 +409,7 @@ def run_urls(urls_file: str, output_dir: str = None) -> bool:
             time.sleep(img_interval)
         ext = _url_ext(url)
         filepath = os.path.join(output_dir, f"dy_img_{idx:02d}.{ext}")
-        if download_file(url, filepath, is_image=True, single_try=True):
+        if download_file(url, filepath, is_image=True):
             success_count += 1
 
     print(f"\n[OK] 完成 {success_count}/{len(urls)}，保存至: {os.path.abspath(output_dir)}")
