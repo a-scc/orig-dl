@@ -366,6 +366,17 @@ def run(raw_input: str, output_dir: str = None) -> bool:
         if download_file(media["url"], filepath, is_image=True):
             success_count += 1
             downloaded_files.append(filepath)
+            # 尺寸对账：API 声明 vs 实测
+            dw, dh = media.get("width"), media.get("height")
+            if dw and dh:
+                with open(filepath, "rb") as f:
+                    actual = sniff_image_size(f.read(262144))
+                if actual:
+                    media["declared"] = [dw, dh]
+                    media["actual"] = list(actual)
+                    media["size_match"] = (dw == actual[0] and dh == actual[1])
+                    if not media["size_match"]:
+                        print(f"[!] 第 {idx+1} 张尺寸不符：声明 {dw}x{dh}，实测 {actual[0]}x{actual[1]}")
 
     if downloaded_files and info.get("publish_time_str"):
         write_timestamps_smart(downloaded_files, info["publish_time_str"], kind="image")

@@ -29,6 +29,7 @@ import urllib.parse
 from datetime import datetime, timezone, timedelta
 
 import requests
+import hashlib
 
 # 单域名（华为云）：备域从未触发，不记
 IMG_DOMAINS = ["sns-img-hw.xhscdn.com"]
@@ -145,14 +146,111 @@ def note_author(note: dict) -> str:
 
 def extract_file_ids(html_text: str, note: dict | None = None) -> list:
     """提 fileId：优先从 note.imageList 结构化提取（防评论区带图混入），
-    失败时回退正则全页提取。去重保序，处理 \\u002F 转义。"""
+    失败时回退正则全页提取。去重保序，处理 \\u002F 转义。
+    返回结构化列表：[{fileId, width, height, livePhoto, videoUrl}]"""
     if note:
-        ids = [im.get("fileId") for im in note.get("imageList", []) if im.get("fileId")]
-        if ids:
-            return list(dict.fromkeys(i.replace('\\u002F', '/') for i in ids))
+        items = []
+        for im in note.get("imageList", []):
+            fid = im.get("fileId")
+            if not fid:
+                continue
+            fid = fid.replace('\\u002F', '/')
+            # 实况视频轨：imageList[i].stream.h264[0].masterUrl
+            video_url = None
+            if im.get("livePhoto"):
+                try:
+                    video_url = im["stream"]["h264"][0]["masterUrl"]
+                except (KeyError, IndexError, TypeError):
+                    pass
+            items.append({
+                "fileId": fid,
+                "width": im.get("width"),
+                "height": im.get("height"),
+                "livePhoto": bool(im.get("livePhoto")),
+                "videoUrl": video_url,
+            })
+        if items:
+            seen = set()
+            result = []
+            for it in items:
+                if it["fileId"] not in seen:
+                    seen.add(it["fileId"])
+                    result.append(it)
+            return result
+    # 回退：正则只提 fileId，无结构化信息
     ids = re.findall(r'"fileId"\s*:\s*"([^"]+)"', html_text)
     ids = [i.replace('\\u002F', '/') for i in ids]
-    return list(dict.fromkeys(ids))
+    ids = list(dict.fromkeys(ids))
+    return [{"fileId": i, "width": None, "height": None,
+             "livePhoto": False, "videoUrl": None} for i in ids]
+
+
+def get_image_dimensions(content: bytes, fmt: str) -> tuple | None:
+    """读真实像素尺寸。HEIC 走 ispe box（ffprobe 会误读缩略块）。"""
+    if fmt == "heic":
+        def boxes(buf, start, end):
+            i = start
+            while i + 8 <= end:
+                size = int.from_bytes(buf[i:i+4], 'big')
+                typ = buf[i+4:i+8]
+                hdr = 8
+                if size == 1:
+                    size = int.from_bytes(buf[i+8:i+16], 'big')
+                    hdr = 16
+                elif size == 0:
+                    size = end - i
+                if size < hdr:
+                    return
+                yield typ, i + hdr, i + size
+                i += size
+        found = []
+        def walk(buf, start, end, depth=0):
+            if depth > 8:
+                return
+            for typ, cs, ce in boxes(buf, start, end):
+                if typ == b'ispe':
+                    w = int.from_bytes(buf[cs+4:cs+8], 'big')
+                    h = int.from_bytes(buf[cs+8:cs+12], 'big')
+                    found.append((w, h))
+                elif typ in (b'meta', b'iprp', b'ipco'):
+                    s = cs + 4 if typ == b'meta' else cs
+                    walk(buf, s, ce, depth + 1)
+        walk(content, 0, len(content))
+        if found:
+            return max(found, key=lambda wh: wh[0] * wh[1])
+        return None
+    if fmt == "jpg":
+        # JPEG SOFn
+        i = 2
+        d = content
+        while i < len(d) - 9:
+            if d[i] != 0xFF:
+                i += 1
+                continue
+            m = d[i+1]
+            if m in (0xC0, 0xC1, 0xC2, 0xC3, 0xC5, 0xC6, 0xC7,
+                     0xC9, 0xCA, 0xCB, 0xCD, 0xCE, 0xCF):
+                h = int.from_bytes(d[i+5:i+7], 'big')
+                w = int.from_bytes(d[i+7:i+9], 'big')
+                return (w, h)
+            if m in (0xD8, 0xD9) or 0xD0 <= m <= 0xD7:
+                i += 2
+                continue
+            ln = int.from_bytes(d[i+2:i+4], 'big')
+            if ln < 2:
+                break
+            i += 2 + ln
+        return None
+    if fmt == "png" and len(content) >= 24:
+        w = int.from_bytes(content[16:20], 'big')
+        h = int.from_bytes(content[20:24], 'big')
+        return (w, h)
+    if fmt == "webp" and len(content) >= 30:
+        if content[12:16] == b'VP8X':
+            w = int.from_bytes(content[24:27], 'little') + 1
+            h = int.from_bytes(content[27:30], 'little') + 1
+            return (w, h)
+    return None
 
 
 def detect_format(content: bytes) -> str:
@@ -225,13 +323,15 @@ def download_original(session: requests.Session, file_id: str, out_path_base: st
             "domain": None, "url": url,
         }
 
-    # 动态扩展名，原样保存
     ext_map = {"heic": ".heic", "jpg": ".jpg", "png": ".png",
                "webp": ".webp", "mpo": ".mpo"}
     ext = ext_map.get(fmt, ".bin")
     out_path = out_path_base + ext
     with open(out_path, "wb") as f:
         f.write(content)
+
+    md5 = hashlib.md5(content).hexdigest()
+    dims = get_image_dimensions(content, fmt)
 
     return {
         "downloaded": True,
@@ -242,7 +342,28 @@ def download_original(session: requests.Session, file_id: str, out_path_base: st
         "format": fmt,
         "method": "bare",
         "domain": domain,
+        "md5": md5,
+        "width": dims[0] if dims else None,
+        "height": dims[1] if dims else None,
     }
+
+
+def download_live_video(session: requests.Session, video_url: str,
+                         out_path: str) -> dict:
+    """下载实况照片的视频轨。"""
+    try:
+        r = session.get(video_url, timeout=60)
+        r.raise_for_status()
+        with open(out_path, "wb") as f:
+            f.write(r.content)
+        return {
+            "downloaded": True,
+            "path": out_path,
+            "bytes": len(r.content),
+            "md5": hashlib.md5(r.content).hexdigest(),
+        }
+    except Exception as e:
+        return {"downloaded": False, "path": None, "error": str(e)}
 
 
 def main() -> None:
@@ -292,9 +413,10 @@ def main() -> None:
     print(f"[4/5] 下载图片（原格式直存，每张间隔 {img_interval} 秒，保守起见）...", file=sys.stderr)
     os.makedirs(args.out_dir, exist_ok=True)
     results = []
-    for n, fid in enumerate(file_ids, 1):
+    for n, item in enumerate(file_ids, 1):
         if n > 1:
             time.sleep(img_interval)
+        fid = item["fileId"]
         filename_base = f"{name_part}_{title_part}_{date_part}_{note_id[:8]}_{n:02d}"
         out_path_base = os.path.join(args.out_dir, filename_base)
         try:
@@ -304,6 +426,20 @@ def main() -> None:
                       "bytes": 0, "format": "unknown", "method": "failed",
                       "domain": None, "error": str(e)}
         result.update({"index": n, "file_id": fid})
+        # 尺寸对账：页面声明 vs 实测
+        dw, dh = item.get("width"), item.get("height")
+        aw, ah = result.get("width"), result.get("height")
+        if dw and dh and aw and ah:
+            result["declared"] = [dw, dh]
+            result["actual"] = [aw, ah]
+            result["size_match"] = (dw == aw and dh == ah)
+        # 实况视频轨
+        if item.get("livePhoto") and item.get("videoUrl"):
+            vpath = out_path_base + "_live.mp4"
+            vresult = download_live_video(session, item["videoUrl"], vpath)
+            result["liveVideo"] = vresult
+            if vresult.get("downloaded"):
+                print(f"  [{n}/{len(file_ids)}] 实况视频 {vresult['bytes']//1024}KB -> {os.path.basename(vpath)}", file=sys.stderr)
         fmt = result.get("format", "unknown").upper()
         method = result.get("method", "")
         out_name = os.path.basename(result.get("path") or filename_base)
