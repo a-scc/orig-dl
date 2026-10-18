@@ -4,13 +4,13 @@
 
 原理：
   1. 提取微博链接中的 status_id
-  2. 访客 cookie（~/.storage/weibo_cookies.json，不存在自动获取）
+  2. 访客 cookie（genvisitor2 自动获取）
   3. weibo.com/ajax/statuses/show 拿 mix_media_info / page_info
   4. 视频地址优先取 media_info.playback_list 最高档（1440p），
      只取最高档，拿不到就报错，不降级
   5. 注意：1440p 为平台转码（encoder=Lavf60.3.100），非上传原文件，
      但已是微博能给的最高清晰度
-  6. 仅支持 weibo.com 状态链接；video.weibo.com/show 纯视频页暂不支持
+  6. 支持 weibo.com 状态链接与 video.weibo.com/show 纯视频页（走 TV 组件 API）
 
 反爬：统一 UA + Referer（common.headers），
 429/403 指数退避重试（common.retry）。
@@ -116,6 +116,53 @@ def extract_status_id(url):
         if m:
             return m.group(1)
     return None
+
+
+def extract_tv_fid(url):
+    """从 video.weibo.com/show?fid= 或 weibo.com/tv/show/ 提 fid。"""
+    m = re.search(r'fid=(1034:[0-9]+)', url)
+    if m:
+        return m.group(1)
+    m = re.search(r'weibo\.com/tv/show/(1034:[0-9]+)', url)
+    if m:
+        return m.group(1)
+    return None
+
+
+def fetch_tv_video(session, fid):
+    """走 TV 组件 API 拿纯视频页的最高档流。"""
+    from urllib.parse import quote
+    import json as _json
+    page = quote(f"/tv/show/{fid}", safe="")
+    data = _json.dumps({"Component_Play_Playinfo": {"oid": fid}})
+    url = f"https://weibo.com/tv/api/component?page={page}&data={quote(data, safe='')}"
+    r = session.get(url, headers={"Referer": f"https://weibo.com/tv/show/{fid}"}, timeout=30)
+    r.raise_for_status()
+    j = r.json()
+    if str(j.get("code")) != "100000":
+        return {"success": False, "error": f"tv api code={j.get('code')}"}
+    playinfo = j["data"]["Component_Play_Playinfo"]
+    urls = playinfo.get("urls", {})
+    # 按画质排序：2K60 > 1080P > 720P > 480P
+    order = ["超清 2K60", "高清 1080P", "高清 720P", "标清 480P"]
+    best_label, best_url = None, None
+    for label in order:
+        if label in urls:
+            best_label, best_url = label, urls[label]
+            break
+    if not best_url:
+        return {"success": False, "error": "no video urls"}
+    if best_url.startswith("//"):
+        best_url = "https:" + best_url
+    return {
+        "success": True,
+        "fid": fid,
+        "quality": best_label,
+        "url": best_url,
+        "author": playinfo.get("nickname", ""),
+        "title": playinfo.get("text", "")[:30],
+        "duration": playinfo.get("duration_time"),
+    }
 
 
 def _safe_name(text, max_len=30):
@@ -258,15 +305,39 @@ def download_file(session, url, filepath):
 
 
 def download(url, output_dir=None):
-    """主入口：下载单条微博的视频（1440p 优先，单链路）。
-    仅支持 weibo.com 状态链接；video.weibo.com/show 纯视频页暂不支持。"""
+    """主入口：下载单条微博的视频（1440p 优先）。
+    支持 weibo.com 状态链接与 video.weibo.com/show 纯视频页。"""
     if output_dir is None:
         output_dir = os.getcwd()
     os.makedirs(output_dir, exist_ok=True)
 
-    if "video.weibo.com/show" in url or "weibo.com/tv/show" in url:
-        print("[!] 纯视频页暂不支持，请用微博状态链接", file=sys.stderr)
-        return {"success": False, "error": "unsupported url type"}
+    session = requests.Session()
+    session.headers.update(WEIBO_API)
+    if not _ensure_cookies(session):
+        print("[!] 无法获取微博访问凭证")
+        return {"success": False}
+
+    # 纯视频页分支
+    tv_fid = extract_tv_fid(url)
+    if tv_fid:
+        print(f"[+] 纯视频页 fid={tv_fid}")
+        tv = fetch_tv_video(session, tv_fid)
+        if not tv["success"]:
+            print(f"[!] TV 接口失败: {tv.get('error')}")
+            return tv
+        print(f"[+] 画质档: {tv['quality']}")
+        author = _safe_name(tv.get("author") or "weibo_tv", 20)
+        save_dir = os.path.join(output_dir, f"{author}_{tv_fid.replace(':', '_')}")
+        os.makedirs(save_dir, exist_ok=True)
+        filepath = os.path.join(save_dir, f"{author}_tv_{tv_fid.replace(':', '_')}.mp4")
+        try:
+            if download_file(session, tv["url"], filepath):
+                print(f"\n[OK] 完成！")
+                print(f"📂 {save_dir}")
+                return {"success": True, "files": 1, "dir": save_dir}
+        except Exception as e:
+            print(f"  ❌ 下载失败: {e}")
+        return {"success": False}
 
     session = requests.Session()
     session.headers.update(WEIBO_API)
