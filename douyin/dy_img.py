@@ -120,12 +120,12 @@ def get_slidesinfo_api(content_id: str) -> dict | None:
     """从 iesdouyin 的 slidesinfo API 获取图文信息。
 
     接口：GET https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/
-         ?aweme_ids=[<id>]&request_source=200&aid=6383&app=aweme
-    带 PC 参数（aid=6383&app=aweme）拿 2160×2880 档 url_list。
+         ?aweme_ids=[<id>]&aid=6383&app=aweme
+    带 PC 参数拿最高档 url_list；不带 request_source（带了部分帖子会被过滤）。
     """
     api_url = (
         "https://www.iesdouyin.com/web/api/v2/aweme/slidesinfo/"
-        f"?aweme_ids=%5B{content_id}%5D&request_source=200&aid=6383&app=aweme"
+        f"?aweme_ids=%5B{content_id}%5D&aid=6383&app=aweme"
     )
     try:
         r = requests.get(api_url, headers=HEADERS, timeout=15)
