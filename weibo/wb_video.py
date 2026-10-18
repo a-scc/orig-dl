@@ -15,7 +15,7 @@
 反爬：统一 UA + Referer（common.headers），
 429/403 指数退避重试（common.retry）。
 
-用法： python3 wb_video.py <微博链接> [保存目录]
+用法: python3 wb_video.py <微博链接> [保存目录]
       python3 wb_video.py --batch links.txt [保存目录]
 """
 
@@ -28,61 +28,12 @@ from datetime import datetime
 
 import requests
 
-# 接入公共模块（仓库内运行时用）；单文件分发时缺 common/ 则用内置默认值
-try:
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from common.headers import WEIBO_API, WEIBO_DL
-    from common.config import MAX_RETRIES
-    from common.retry import with_retry, check_response
-    from common.timestamps import write_timestamps_smart
-    _HAS_COMMON = True
-except ImportError:
-    _HAS_COMMON = False
-    WEIBO_API = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36",
-        "Referer": "https://weibo.com/",
-        "X-Requested-With": "XMLHttpRequest",
-    }
-    WEIBO_DL = {
-        "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1",
-        "Referer": "https://weibo.com/",
-    }
-    MAX_RETRIES = 3
-    def with_retry(*a, **k):
-        def deco(f): return f
-        return deco
-    def check_response(r):
-        r.raise_for_status()
-        return r
-    def write_timestamps_smart(files, timestr, kind="video"): pass
-
-
-COOKIE_FILE = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "storage", "weibo_cookies.json"
-)
-
-
-def _save_cookies(session):
-    os.makedirs(os.path.dirname(COOKIE_FILE), exist_ok=True)
-    with open(COOKIE_FILE, "w") as f:
-        json.dump(requests.utils.dict_from_cookiejar(session.cookies), f)
-    print(f"[+] cookie 已保存到 {COOKIE_FILE}")
-
-
-def _load_cookies(session):
-    if not os.path.exists(COOKIE_FILE):
-        return False
-    try:
-        with open(COOKIE_FILE) as f:
-            jar = json.load(f)
-        session.cookies.update(jar)
-        if "SUB" in session.cookies:
-            print("[+] 从文件加载了微博 cookie ✅")
-            return True
-    except Exception:
-        pass
-    return False
+# 接入公共模块
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from common.headers import WEIBO_API, WEIBO_DL
+from common.config import MAX_RETRIES
+from common.retry import with_retry, check_response
+from common.timestamps import write_timestamps_smart
 
 
 def _get_visitor_cookies(session):
@@ -124,7 +75,6 @@ def _get_visitor_cookies(session):
     )
     if "SUB" in session.cookies:
         print("[+] 访客 cookie 获取成功 ✅")
-        _save_cookies(session)
         return True
     print("[!] 获取 cookie 失败")
     return False
@@ -132,8 +82,6 @@ def _get_visitor_cookies(session):
 
 def _ensure_cookies(session):
     if "SUB" in session.cookies and "SUBP" in session.cookies:
-        return True
-    if _load_cookies(session):
         return True
     return _get_visitor_cookies(session)
 
