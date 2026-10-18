@@ -128,11 +128,13 @@ def main():
     parser.add_argument("--file", help="App 保存的日常视频文件路径")
     parser.add_argument("--uri", help="直接指定视频 URI（v 开头，跳过元数据提取）")
     parser.add_argument("--out-dir", default=".", help="保存目录")
+    parser.add_argument("--author", help="作者名，用于文件名")
+    parser.add_argument("--date", help="发布日期 YYYYMMDD，用于文件名")
+    parser.add_argument("--index", default="01", help="序号，用于文件名")
     args = parser.parse_args()
 
     if args.uri:
         uri = args.uri
-        # 兼容带 vid: 前缀的输入
         m = re.search(r"v[a-zA-Z0-9]+", uri)
         uri = m.group(0) if m else uri
     elif args.file:
@@ -154,7 +156,10 @@ def main():
 
     print("[3/3] 下载原画...")
     os.makedirs(args.out_dir, exist_ok=True)
-    filename = f"douyin_daily_{uri[5:13]}.mp4"
+    if args.author and args.date:
+        filename = f"{args.author}_{args.index}_{args.date}.mp4"
+    else:
+        filename = f"douyin_daily_{uri[5:13]}.mp4"
     filepath = os.path.join(args.out_dir, filename)
     if not download(cdn_url, filepath):
         sys.exit(1)
