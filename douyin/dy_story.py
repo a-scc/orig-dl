@@ -94,7 +94,7 @@ def resolve_cdn_url(uri: str) -> str | None:
 
 
 def download(url: str, filepath: str) -> bool:
-    """流式下载 + Content-Length 对账"""
+    """流式下载 + Content-Length 对账，返回实际后缀"""
     tmp = filepath + ".tmp"
     try:
         r = requests.get(url, headers=HEADERS, stream=True, timeout=60)
@@ -112,6 +112,15 @@ def download(url: str, filepath: str) -> bool:
             os.remove(tmp)
             print(f"[!] 下载截断（{downloaded}/{expected}），已删除残缺文件")
             return False
+        # 按 Content-Type 定后缀
+        ct = r.headers.get("Content-Type", "")
+        ext = "mp4"
+        if "quicktime" in ct:
+            ext = "mov"
+        elif "x-m4v" in ct:
+            ext = "m4v"
+        base, _ = os.path.splitext(filepath)
+        filepath = f"{base}.{ext}"
         os.rename(tmp, filepath)
         print(f"[+] {os.path.basename(filepath)} ({downloaded:,} 字节，MD5 {md5.hexdigest()[:8]}...)")
         return True
@@ -157,9 +166,9 @@ def main():
     print("[3/3] 下载原画...")
     os.makedirs(args.out_dir, exist_ok=True)
     if args.author and args.date:
-        filename = f"{args.author}_{args.index}_{args.date}.mp4"
+        filename = f"{args.author}_{args.index}_{args.date}"
     else:
-        filename = f"douyin_daily_{uri[5:13]}.mp4"
+        filename = f"douyin_daily_{uri[5:13]}"
     filepath = os.path.join(args.out_dir, filename)
     if not download(cdn_url, filepath):
         sys.exit(1)
