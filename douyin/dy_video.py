@@ -6,13 +6,6 @@
   → aweme/v1/play/?video_id={uri}&ratio=default&line=0（免登录）
   → 302 跟随拿 CDN 直链 → 下载源文件
 
-  ratio=default 直接拿原画，不走档位选择（避开"4K"标签陷阱：
-  4K 转码与原画同分辨率同帧率，码率差 16 倍，只看标签会拿错）。
-  原画校验：URL 无 br= 参数、桶名为 tos-cn-v-（转码在 tos-cn-ve-）。
-
-  单链路：只走 detail API，拿不到就报错等 1 小时，不降级、不绕行、
-  不依赖第三方解析。
-
 反爬：统一 UA + Referer（common.headers），
 429/403 指数退避重试（common.retry）。
 
