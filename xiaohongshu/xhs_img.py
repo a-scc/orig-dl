@@ -219,8 +219,8 @@ def get_image_dimensions(content: bytes, fmt: str) -> tuple | None:
         if found:
             return max(found, key=lambda wh: wh[0] * wh[1])
         return None
-    if fmt == "jpg":
-        # JPEG SOFn
+    if fmt in ("jpg", "mpo"):
+        # JPEG SOFn（MPO 是 JPEG 壳）
         i = 2
         d = content
         while i < len(d) - 9:
@@ -297,6 +297,9 @@ def download_original(session: requests.Session, file_id: str, out_path_base: st
         # 体积校验：按 Content-Length 对账，防截断下载；
         # 无该头时回退 10000 字节启发式
         expected = int(r.headers.get("Content-Length", 0) or 0)
+        # CDN 可能回 gzip：Content-Length 是压缩后长度，解压后对不上，跳过对账
+        if r.headers.get("Content-Encoding"):
+            expected = 0
         if expected:
             if len(r.content) != expected:
                 return {
@@ -471,7 +474,7 @@ def main() -> None:
     if downloaded and publish_time_str:
         write_timestamps_smart(downloaded, publish_time_str, kind="image")
 
-    tag = "[+]" if manifest["status"] == "success" else "[!]"
+    tag = "[+]" if manifest["status"] == "original_success" else "[!]"
     print(f"{tag} 完成 {ok}/{len(file_ids)}，清单: {manifest_path}")
 
 
