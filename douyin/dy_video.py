@@ -2,7 +2,7 @@
 """抖音作品视频真原画下载器（视频专用）。
 
 原理：
-  detail API 取元数据 + 视频 URI（v0d00/v0300）
+  detail API 取元数据 + 视频 URI
   → aweme/v1/play/?video_id={uri}&ratio=default&line=0（免登录）
   → 302 跟随拿 CDN 直链 → 下载源文件
 
@@ -191,10 +191,10 @@ def get_detail_api(content_id: str) -> dict | None:
 
 
 def extract_v0d00_uri(text: str) -> str | None:
-    """提取/校验视频 URI（v0d00 老链路 / v0300 新链路）。
-    配合 ratio=default 拿真原画（已有直接证据，不再纠结 v0d00 说法）。"""
-    # v0d00/v0300 后跟 32 位左右的 base62 字符串
-    m = re.search(r'v0(?:d00|300)[a-zA-Z0-9_-]{20,40}', text)
+    """提取/校验视频 URI（v 开头 + 4 位 + base62 字符串）。
+    配合 ratio=default 拿真原画。"""
+    # v + 4 位前缀 + 20-40 位 base62 字符串
+    m = re.search(r'v[a-z0-9]{4}[a-zA-Z0-9_-]{20,40}', text)
     if m:
         return m.group(0)
     return None
@@ -271,9 +271,9 @@ def parse_detail_api(data: dict) -> dict | None:
         if not uri:
             print("[!] detail API 中未找到视频 URI")
             return None
-        # 格式校验：v0d00 老链路 / v0300 新链路（4K H.265 作品）
+        # 格式校验：v 开头 URI
         if not extract_v0d00_uri(uri):
-            print(f"[~] URI 格式非 v0d00/v0300（{uri[:20]}...），仍尝试 ratio=default")
+            print(f"[~] URI 格式异常（{uri[:20]}...），仍尝试 ratio=default")
 
         aweme_id = ad.get("aweme_id", "")
         true_url = resolve_true_original(uri)

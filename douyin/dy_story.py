@@ -3,7 +3,7 @@
 """抖音日常视频原画下载器（视频专用）。
 
 原理：
-  App 保存的日常视频元数据（Keys:Comment）藏着原始 URI（vid:v0d00/v0300...）
+  App 保存的日常视频元数据（Keys:Comment）藏着原始 URI（vid:v...）
   → 取 URI 部分调 play API（ratio=default，免登录）
   → 302 拿 CDN 直链 → 下载源文件
 
@@ -53,7 +53,7 @@ PLAY_DOMAINS = [
 
 
 def extract_uri_from_file(path: str) -> str | None:
-    """从保存的视频元数据提取视频 URI（v0d00/v0300 双链路）"""
+    """从保存的视频元数据提取视频 URI（v 开头）"""
     if not os.path.exists(EXIFTOOL):
         print("[!] 找不到 exiftool，无法读取元数据")
         return None
@@ -64,11 +64,11 @@ def extract_uri_from_file(path: str) -> str | None:
     except Exception as e:
         print(f"[!] exiftool 读取失败: {e}")
         return None
-    m = re.search(r"vid:(v0d00[a-zA-Z0-9]+|v0300[a-zA-Z0-9]+)", out)
+    m = re.search(r"vid:(v[a-zA-Z0-9]+)", out)
     if m:
         return m.group(1)
-    # 兜底：全文搜双前缀
-    m = re.search(r"v0d00[a-zA-Z0-9]{20,40}|v0300[a-zA-Z0-9]{20,40}", out)
+    # 兜底：全文搜 v 开头的 URI（v + 4 位 + 20-40 位）
+    m = re.search(r"\bv[a-z0-9]{4}[a-zA-Z0-9]{20,40}\b", out)
     return m.group(0) if m else None
 
 
@@ -126,14 +126,14 @@ def main():
     import argparse
     parser = argparse.ArgumentParser(description="抖音日常原画下载（从 App 保存的视频提取视频 URI）")
     parser.add_argument("--file", help="App 保存的日常视频文件路径")
-    parser.add_argument("--uri", help="直接指定视频 URI（v0d00/v0300，跳过元数据提取）")
+    parser.add_argument("--uri", help="直接指定视频 URI（v 开头，跳过元数据提取）")
     parser.add_argument("--out-dir", default=".", help="保存目录")
     args = parser.parse_args()
 
     if args.uri:
         uri = args.uri
         # 兼容带 vid: 前缀的输入
-        m = re.search(r"v0d00[a-zA-Z0-9]+|v0300[a-zA-Z0-9]+", uri)
+        m = re.search(r"v[a-zA-Z0-9]+", uri)
         uri = m.group(0) if m else uri
     elif args.file:
         print("[1/3] 从视频元数据提取视频 URI...")
